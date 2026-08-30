@@ -40,7 +40,8 @@ guardados acá.
    usa Rendix cliente, por el mismo motivo de aislamiento) y configurala
    como proveedor `google` en Authentication → Providers de este Supabase.
 5. Copiá `.env.example` a `.env.local` y completá los valores.
-6. `npm install && npm run dev`.
+6. `npm install && npm run dev` — corre en `http://localhost:5000` (puerto
+   fijo a propósito, para no chocar con Rendix Platform que usa el 3000).
 
 ## Stack
 
