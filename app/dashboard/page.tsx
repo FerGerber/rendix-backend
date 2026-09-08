@@ -1,51 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabase/client";
+import Link from "next/link";
+import { useStaffSession } from "@/lib/hooks/useStaffSession";
 import {
   RENDIX_CLIENT_ENVIRONMENTS,
   RENDIX_CLIENT_ENVIRONMENT_LABELS,
-} from "../../lib/environments";
-
-type StaffProfile = {
-  id: string;
-  email: string;
-  full_name: string | null;
-  is_active: boolean;
-};
+} from "@/lib/environments";
 
 export default function DashboardPage() {
-  const [loading, setLoading] = useState(true);
-  const [accessDenied, setAccessDenied] = useState(false);
-  const [staff, setStaff] = useState<StaffProfile | null>(null);
-
-  useEffect(() => {
-    const load = async () => {
-      const { data: authData } = await supabase.auth.getUser();
-
-      if (!authData.user) {
-        window.location.href = "/login";
-        return;
-      }
-
-      const { data: staffData, error } = await supabase
-        .from("staff_users")
-        .select("id, email, full_name, is_active")
-        .eq("id", authData.user.id)
-        .single();
-
-      if (error || !staffData || !staffData.is_active) {
-        setAccessDenied(true);
-        setLoading(false);
-        return;
-      }
-
-      setStaff(staffData);
-      setLoading(false);
-    };
-
-    load();
-  }, []);
+  const { loading, accessDenied, staff } = useStaffSession();
 
   if (loading) {
     return (
@@ -81,10 +44,20 @@ export default function DashboardPage() {
         </h1>
 
         <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-bold">Entornos de Rendix</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Alta de empresas y usuarios — próximo paso a construir acá.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold">Empresas</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Alta y gestión de empresas cliente, por entorno.
+              </p>
+            </div>
+            <Link
+              href="/companies"
+              className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              Ir a Empresas
+            </Link>
+          </div>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {RENDIX_CLIENT_ENVIRONMENTS.map((env) => (
