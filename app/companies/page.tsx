@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useStaffSession } from "@/lib/hooks/useStaffSession";
 import { authenticatedFetch } from "@/lib/api/client";
@@ -27,11 +27,24 @@ type ClientCompany = {
   created_at: string;
 };
 
+type UnregisteredCompany = {
+  id: string;
+  name: string;
+  tax_id: string | null;
+  base_currency: string;
+  is_active: boolean;
+};
+
 export default function CompaniesPage() {
   const { loading, accessDenied, staff } = useStaffSession();
   const [companies, setCompanies] = useState<ClientCompany[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(true);
   const [companiesError, setCompaniesError] = useState("");
+  // Igual que en /companies/[id]: después de la primera carga, un refresh
+  // (tras crear, importar o activar/desactivar) no debe volver a tapar la
+  // lista con "Cargando empresas..." — eso es lo que hacía que la
+  // pantalla pareciera "reiniciarse" con cada acción.
+  const companiesLoadedOnceRef = useRef(false);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
@@ -42,8 +55,19 @@ export default function CompaniesPage() {
   const [environment, setEnvironment] =
     useState<RendixClientEnvironment>("development");
 
+  const [showImport, setShowImport] = useState(false);
+  const [importEnvironment, setImportEnvironment] =
+    useState<RendixClientEnvironment>(CONFIGURED_ENVIRONMENTS[0]);
+  const [unregistered, setUnregistered] = useState<UnregisteredCompany[]>([]);
+  const [unregisteredLoading, setUnregisteredLoading] = useState(false);
+  const [unregisteredError, setUnregisteredError] = useState("");
+  const unregisteredLoadedOnceRef = useRef(false);
+  const [importingId, setImportingId] = useState<string | null>(null);
+
   const loadCompanies = async () => {
-    setCompaniesLoading(true);
+    if (!companiesLoadedOnceRef.current) {
+      setCompaniesLoading(true);
+    }
     setCompaniesError("");
     try {
       const response = await authenticatedFetch("/api/companies");
@@ -52,6 +76,7 @@ export default function CompaniesPage() {
         throw new Error(result.error || "No se pudieron cargar las empresas.");
       }
       setCompanies(result.companies);
+      companiesLoadedOnceRef.current = true;
     } catch (error) {
       setCompaniesError(
         error instanceof Error
@@ -69,6 +94,71 @@ export default function CompaniesPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, accessDenied]);
+
+  const loadUnregistered = async (targetEnvironment: RendixClientEnvironment) => {
+    if (!unregisteredLoadedOnceRef.current) {
+      setUnregisteredLoading(true);
+    }
+    setUnregisteredError("");
+    try {
+      const response = await authenticatedFetch(
+        `/api/companies/unregistered?environment=${targetEnvironment}`
+      );
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.error || "No se pudieron cargar las empresas sin importar."
+        );
+      }
+      setUnregistered(result.companies);
+      unregisteredLoadedOnceRef.current = true;
+    } catch (error) {
+      setUnregisteredError(
+        error instanceof Error
+          ? error.message
+          : "No se pudieron cargar las empresas sin importar."
+      );
+    } finally {
+      setUnregisteredLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Cambiar de entorno es una consulta distinta — ahí sí conviene
+    // mostrar "Buscando empresas..." en vez de dejar la lista del entorno
+    // anterior a la vista mientras carga la nueva.
+    unregisteredLoadedOnceRef.current = false;
+    if (showImport) {
+      loadUnregistered(importEnvironment);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showImport, importEnvironment]);
+
+  const handleImport = async (company: UnregisteredCompany) => {
+    setImportingId(company.id);
+    setUnregisteredError("");
+    try {
+      const response = await authenticatedFetch("/api/companies/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          environment: importEnvironment,
+          remote_company_id: company.id,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "No se pudo importar la empresa.");
+      }
+      await Promise.all([loadCompanies(), loadUnregistered(importEnvironment)]);
+    } catch (error) {
+      setUnregisteredError(
+        error instanceof Error ? error.message : "No se pudo importar la empresa."
+      );
+    } finally {
+      setImportingId(null);
+    }
+  };
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -168,14 +258,96 @@ export default function CompaniesPage() {
             </p>
             <h1 className="mt-1 text-3xl font-bold">Empresas</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowForm((value) => !value)}
-            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-          >
-            {showForm ? "Cancelar" : "+ Nueva empresa"}
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => setShowImport((value) => !value)}
+              className="rounded-xl border-2 border-blue-600 px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
+            >
+              {showImport ? "Cancelar" : "Importar existente"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm((value) => !value)}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              {showForm ? "Cancelar" : "+ Nueva empresa"}
+            </button>
+          </div>
         </div>
+
+        {showImport && (
+          <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-bold">Importar empresa existente</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Empresas que ya existen en el entorno elegido pero todavía no
+              tienen ficha en este registro (por ejemplo, porque se
+              crearon antes de esta pantalla).
+            </p>
+
+            <label className="mt-4 block max-w-xs text-sm">
+              <span className="font-medium text-slate-700">Entorno</span>
+              <select
+                value={importEnvironment}
+                onChange={(event) =>
+                  setImportEnvironment(
+                    event.target.value as RendixClientEnvironment
+                  )
+                }
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                {CONFIGURED_ENVIRONMENTS.map((env) => (
+                  <option key={env} value={env}>
+                    {RENDIX_CLIENT_ENVIRONMENT_LABELS[env]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="mt-4">
+              {unregisteredLoading ? (
+                <p className="text-sm text-slate-500">Buscando empresas...</p>
+              ) : unregisteredError ? (
+                <p className="text-sm font-medium text-red-600">
+                  {unregisteredError}
+                </p>
+              ) : unregistered.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No hay empresas sin importar en este entorno.
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100 rounded-xl border border-slate-100">
+                  {unregistered.map((company) => (
+                    <div
+                      key={company.id}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {company.name}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {company.tax_id ? `${company.tax_id} · ` : ""}
+                          {company.base_currency}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleImport(company)}
+                        disabled={importingId === company.id}
+                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        {importingId === company.id
+                          ? "Importando..."
+                          : "Importar"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <form
@@ -302,6 +474,12 @@ export default function CompaniesPage() {
                     >
                       {company.is_active ? "Activa" : "Inactiva"}
                     </span>
+                    <Link
+                      href={`/companies/${company.id}`}
+                      className="text-xs font-medium text-blue-600 hover:underline"
+                    >
+                      Gestionar
+                    </Link>
                     <button
                       type="button"
                       onClick={() => toggleActive(company)}

@@ -2,10 +2,6 @@
 
 import Link from "next/link";
 import { useStaffSession } from "@/lib/hooks/useStaffSession";
-import {
-  RENDIX_CLIENT_ENVIRONMENTS,
-  RENDIX_CLIENT_ENVIRONMENT_LABELS,
-} from "@/lib/environments";
 
 export default function DashboardPage() {
   const { loading, accessDenied, staff } = useStaffSession();
@@ -57,17 +53,6 @@ export default function DashboardPage() {
             >
               Ir a Empresas
             </Link>
-          </div>
-
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            {RENDIX_CLIENT_ENVIRONMENTS.map((env) => (
-              <div
-                key={env}
-                className="rounded-xl border border-slate-200 px-4 py-3 text-sm"
-              >
-                {RENDIX_CLIENT_ENVIRONMENT_LABELS[env]}
-              </div>
-            ))}
           </div>
         </div>
       </div>
