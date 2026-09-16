@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { randomBytes } from "crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireActiveStaff } from "@/lib/api/auth";
 import { getRegisteredCompany, resolveEnvironmentClient } from "@/lib/api/companies";
 import {
@@ -27,7 +29,29 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const PROFILE_SELECT =
-  "id, email, full_name, role, is_active, supervisor_id, auth_provider, is_company_admin, can_submit_reports, can_approve_reports, can_manage_users, can_view_reports, can_manage_finance, created_at";
+  "id, email, full_name, role, is_active, supervisor_id, auth_provider, is_company_admin, can_submit_reports, can_approve_reports, can_manage_users, can_view_reports, can_manage_finance, must_reset_password, created_at";
+
+// Caso testigo 2026-09-16: el alta "local" mandaba la contraseña inicial
+// por mail (inviteUserByEmail), pero eso depende de que Supabase Auth
+// logre entregar ese mail — probado en vivo, cayó a spam con el mailer
+// por default y en otro caso ni siquiera llegó. En vez de depender de eso
+// para el acceso inicial, se genera acá una contraseña temporal al azar,
+// se le crea la cuenta directo con esa contraseña, y queda marcada con
+// must_reset_password para que rendi-platform la obligue a cambiarla en
+// el primer login. La contraseña se devuelve UNA SOLA VEZ en la respuesta
+// de este POST para que quien hizo el alta se la pase a la persona por
+// el canal que prefiera (no por mail, para no depender otra vez de la
+// entrega) — no se guarda en ningún lado en texto plano.
+function generateTemporaryPassword(): string {
+  const chars =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%";
+  const bytes = randomBytes(16);
+  let password = "";
+  for (const byte of bytes) {
+    password += chars[byte % chars.length];
+  }
+  return password;
+}
 
 type SupervisorInfo = {
   id: string;
@@ -35,6 +59,42 @@ type SupervisorInfo = {
   can_approve_reports: boolean | null;
   can_manage_finance: boolean | null;
 };
+
+// Caso testigo 2026-09-15: alguien probó "Ingresar con Google/Microsoft"
+// contra rendi-platform ANTES de que existiera su perfil. Supabase Auth ya
+// le creó la identidad en auth.users en ese primer intento (el rechazo que
+// vio es solo del lado de la app, al no encontrar profiles) — así que
+// admin.createUser() para esa misma persona falla con "email_exists" en vez
+// de duplicar nada. Esta función busca esa identidad ya existente por email
+// para poder colgarle el perfil en vez de fallar. La Admin API no tiene un
+// "getUserByEmail" en esta versión de @supabase/supabase-js, así que hay
+// que paginar listUsers() — el tope de 5000 usuarios es un colchón amplio
+// para el tamaño actual; si en algún momento se vuelve un cuello de
+// botella real, conviene revisar si la API ya suma un filtro por email.
+async function findAuthUserByEmail(
+  client: SupabaseClient,
+  email: string
+): Promise<{ id: string } | null> {
+  const target = email.trim().toLowerCase();
+  const perPage = 200;
+
+  for (let page = 1; page <= 25; page++) {
+    const { data, error } = await client.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+    if (error || !data) return null;
+
+    const match = data.users.find(
+      (user) => (user.email || "").toLowerCase() === target
+    );
+    if (match) return { id: match.id };
+
+    if (data.users.length < perPage) break;
+  }
+
+  return null;
+}
 
 export async function GET(request: Request, { params }: RouteParams) {
   const auth = await requireActiveStaff(request);
@@ -296,31 +356,23 @@ export async function POST(request: Request, { params }: RouteParams) {
   // (Sign in with Google contra dev.rendixapp.com) ya se probó de punta a
   // punta con un alta real y linkeó correctamente contra este mismo
   // auth.users.id, sin duplicar identidad.
+  //
+  // Si esa persona ya había probado loguearse ANTES de tener perfil (le
+  // aparece "no tenés acceso" en rendi-platform), Supabase ya le creó la
+  // identidad de Auth en ese primer intento y createUser() acá abajo falla
+  // con "email_exists" — el bloque de abajo detecta ese caso y reusa esa
+  // identidad en vez de fallar el alta.
   let authUserId: string;
+  let reusedExistingAuthIdentity = false;
+  let temporaryPassword: string | null = null;
 
   if (authProvider === "local") {
-    const { data: inviteData, error: inviteError } =
-      await environmentClient.auth.admin.inviteUserByEmail(email, {
-        data: fullName ? { full_name: fullName } : undefined,
-      });
+    temporaryPassword = generateTemporaryPassword();
 
-    if (inviteError || !inviteData.user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `No se pudo invitar al usuario: ${
-            inviteError?.message || "error desconocido"
-          }`,
-        },
-        { status: 500 }
-      );
-    }
-
-    authUserId = inviteData.user.id;
-  } else {
     const { data: createData, error: createError } =
       await environmentClient.auth.admin.createUser({
         email,
+        password: temporaryPassword,
         email_confirm: true,
         user_metadata: fullName ? { full_name: fullName } : undefined,
       });
@@ -338,6 +390,93 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     authUserId = createData.user.id;
+  } else {
+    const { data: createData, error: createError } =
+      await environmentClient.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: fullName ? { full_name: fullName } : undefined,
+      });
+
+    if (createError || !createData.user) {
+      // "email_exists": lo más probable es que la persona ya haya
+      // intentado loguearse con Google/Microsoft antes de tener perfil.
+      // En ese caso no hay que fallar el alta: hay que reusar esa
+      // identidad de Auth y colgarle el perfil, no crear una cuenta
+      // nueva (ver comentario de findAuthUserByEmail).
+      const emailAlreadyRegistered =
+        createError?.code === "email_exists" ||
+        /already.*registered|user_already_exists/i.test(
+          createError?.message || ""
+        );
+
+      if (!emailAlreadyRegistered) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `No se pudo crear el usuario: ${
+              createError?.message || "error desconocido"
+            }`,
+          },
+          { status: 500 }
+        );
+      }
+
+      const existingAuthUser = await findAuthUserByEmail(
+        environmentClient,
+        email
+      );
+
+      if (!existingAuthUser) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Ese email ya está registrado en el sistema de autenticación (probablemente porque la persona ya intentó ingresar antes), pero no se pudo encontrar la cuenta para vincularla. Contactá a un administrador.",
+          },
+          { status: 500 }
+        );
+      }
+
+      // Si ya hay un perfil colgado de esa identidad (en esta empresa o
+      // en otra), no lo pisamos: eso hay que resolverlo a mano desde
+      // Editar, no como un alta nueva.
+      const { data: existingProfile, error: existingProfileError } =
+        await environmentClient
+          .from("profiles")
+          .select("id, company_id, is_active")
+          .eq("id", existingAuthUser.id)
+          .maybeSingle();
+
+      if (existingProfileError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Ese email ya está registrado en el sistema de autenticación, pero no se pudo verificar si ya tiene un perfil asociado. Contactá a un administrador.",
+          },
+          { status: 500 }
+        );
+      }
+
+      if (existingProfile) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              existingProfile.company_id === company.remote_company_id
+                ? "Esa persona ya tiene un perfil en esta empresa — buscala en la lista en vez de crearla de nuevo."
+                : "Esa persona ya tiene un perfil en otra empresa registrada en Rendix. Si hay que moverla a esta empresa, avisame para resolverlo a mano.",
+          },
+          { status: 409 }
+        );
+      }
+
+      authUserId = existingAuthUser.id;
+      reusedExistingAuthIdentity = true;
+    } else {
+      authUserId = createData.user.id;
+    }
   }
 
   const { data: newProfile, error: profileError } = await environmentClient
@@ -351,6 +490,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       auth_provider: authProvider,
       supervisor_id: supervisorId,
       is_active: true,
+      must_reset_password: authProvider === "local",
       is_company_admin: body.is_company_admin === true,
       can_submit_reports: body.can_submit_reports !== false,
       can_approve_reports: body.can_approve_reports === true,
@@ -378,6 +518,18 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const notes: string[] = [];
+
+  if (temporaryPassword) {
+    notes.push(
+      `Contraseña temporal para ${email}: ${temporaryPassword} — pasásela por un canal que no sea email (no se mandó ningún mail con esto) y avisale que se la va a pedir cambiar apenas entre. No se vuelve a mostrar.`
+    );
+  }
+
+  if (reusedExistingAuthIdentity) {
+    notes.push(
+      "Esta persona ya había intentado ingresar antes de tener perfil — se vinculó el perfil nuevo a esa cuenta existente, no se creó una cuenta duplicada."
+    );
+  }
 
   if (supervisor && shouldGrantApprovalOnSupervisorAssignment(supervisor)) {
     const { error: grantError } = await environmentClient

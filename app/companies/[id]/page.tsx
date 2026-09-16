@@ -174,6 +174,22 @@ export default function CompanyDetailPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
 
+  const [editingCompany, setEditingCompany] = useState(false);
+  const [companyForm, setCompanyForm] = useState({
+    name: "",
+    taxId: "",
+    baseCurrency: "",
+  });
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [companyFormError, setCompanyFormError] = useState("");
+
+  // Separado del guardado de nombre/CUIT/moneda: activar/desactivar es una
+  // acción con consecuencias reales (corta el acceso a la empresa entera,
+  // ver la policy restrictiva en rendi-platform), así que tiene su propio
+  // estado y su propio mensaje de error.
+  const [togglingCompanyActive, setTogglingCompanyActive] = useState(false);
+  const [companyToggleError, setCompanyToggleError] = useState("");
+
   const loadCompany = async () => {
     setCompanyLoading(true);
     setCompanyError("");
@@ -247,6 +263,100 @@ export default function CompanyDetailPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, accessDenied, companyId]);
+
+  const startEditCompany = () => {
+    if (!company) return;
+    setCompanyForm({
+      name: company.name,
+      taxId: company.tax_id || "",
+      baseCurrency: company.base_currency,
+    });
+    setCompanyFormError("");
+    setEditingCompany(true);
+  };
+
+  const handleSaveCompany = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!companyForm.name.trim()) {
+      setCompanyFormError("El nombre de la empresa es obligatorio.");
+      return;
+    }
+
+    setSavingCompany(true);
+    setCompanyFormError("");
+
+    try {
+      const response = await authenticatedFetch(`/api/companies/${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: companyForm.name.trim(),
+          tax_id: companyForm.taxId.trim() || null,
+          base_currency: companyForm.baseCurrency.trim(),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "No se pudo guardar la empresa.");
+      }
+      setCompany(result.company);
+      setEditingCompany(false);
+    } catch (error) {
+      setCompanyFormError(
+        error instanceof Error ? error.message : "No se pudo guardar la empresa."
+      );
+    } finally {
+      setSavingCompany(false);
+    }
+  };
+
+  // No hay "eliminar empresa" a propósito: una empresa nunca queda con
+  // cero datos reales (catálogos, historial de rendiciones), borrar en
+  // cascada es riesgoso en una app que maneja plata y el caso de una
+  // empresa 100% de prueba/error es raro — se resuelve a mano si llega a
+  // pasar. Lo único soportado es activar/desactivar.
+  const handleToggleCompanyActive = async () => {
+    if (!company) return;
+
+    const activeUsers = users.filter((user) => user.is_active).length;
+    const goingInactive = company.is_active;
+
+    const confirmMessage = goingInactive
+      ? `Vas a desactivar "${company.name}".${
+          activeUsers > 0
+            ? ` Esto corta el acceso a ${activeUsers} usuario${
+                activeUsers === 1 ? "" : "s"
+              } activo${activeUsers === 1 ? "" : "s"} de esta empresa.`
+            : ""
+        } ¿Confirmás?`
+      : `Vas a reactivar "${company.name}". Esto no reactiva usuarios individuales que hayan sido desactivados aparte — eso se hace desde Editar en cada uno. ¿Confirmás?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setTogglingCompanyActive(true);
+    setCompanyToggleError("");
+
+    try {
+      const response = await authenticatedFetch(`/api/companies/${companyId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: !company.is_active }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "No se pudo cambiar el estado de la empresa.");
+      }
+      setCompany(result.company);
+    } catch (error) {
+      setCompanyToggleError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo cambiar el estado de la empresa."
+      );
+    } finally {
+      setTogglingCompanyActive(false);
+    }
+  };
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -387,12 +497,101 @@ export default function CompanyDetailPage() {
             <p className="text-sm font-bold uppercase tracking-wide text-blue-600">
               {RENDIX_CLIENT_ENVIRONMENT_LABELS[company.environment]}
             </p>
-            <h1 className="mt-1 text-3xl font-bold">{company.name}</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              {company.tax_id ? `${company.tax_id} · ` : ""}
-              {company.base_currency}
-              {!company.is_active ? " · Inactiva" : ""}
-            </p>
+
+            {editingCompany ? (
+              <form
+                onSubmit={handleSaveCompany}
+                className="mt-3 max-w-md space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-4"
+              >
+                <div>
+                  <label className="text-sm font-medium text-slate-700">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={companyForm.name}
+                    onChange={(event) =>
+                      setCompanyForm((form) => ({
+                        ...form,
+                        name: event.target.value,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700">
+                    CUIT / identificador fiscal
+                  </label>
+                  <input
+                    type="text"
+                    value={companyForm.taxId}
+                    onChange={(event) =>
+                      setCompanyForm((form) => ({
+                        ...form,
+                        taxId: event.target.value,
+                      }))
+                    }
+                    className="mt-1 w-full rounded-xl border-2 border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700">
+                    Moneda base
+                  </label>
+                  <input
+                    type="text"
+                    value={companyForm.baseCurrency}
+                    onChange={(event) =>
+                      setCompanyForm((form) => ({
+                        ...form,
+                        baseCurrency: event.target.value.toUpperCase(),
+                      }))
+                    }
+                    maxLength={3}
+                    className="mt-1 w-24 rounded-xl border-2 border-slate-300 px-3 py-2 text-sm uppercase"
+                  />
+                </div>
+
+                {companyFormError && (
+                  <p className="text-sm font-medium text-red-600">
+                    {companyFormError}
+                  </p>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={savingCompany}
+                    className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+                  >
+                    {savingCompany ? "Guardando..." : "Guardar"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingCompany(false)}
+                    className="rounded-xl border-2 border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <h1 className="mt-1 text-3xl font-bold">{company.name}</h1>
+                <p className="mt-1 text-sm text-slate-500">
+                  {company.tax_id ? `${company.tax_id} · ` : ""}
+                  {company.base_currency}
+                  {!company.is_active ? " · Inactiva" : ""}
+                </p>
+              </>
+            )}
+
+            {companyToggleError && (
+              <p className="mt-2 text-sm font-medium text-red-600">
+                {companyToggleError}
+              </p>
+            )}
 
             <div className="mt-4 flex flex-wrap gap-2">
               <Link
@@ -407,6 +606,31 @@ export default function CompanyDetailPage() {
               >
                 Centros de costo
               </Link>
+              {!editingCompany && (
+                <button
+                  type="button"
+                  onClick={startEditCompany}
+                  className="rounded-xl border-2 border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Editar datos
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleToggleCompanyActive}
+                disabled={togglingCompanyActive}
+                className={`rounded-xl border-2 px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  company.is_active
+                    ? "border-red-300 text-red-600 hover:bg-red-50"
+                    : "border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+                }`}
+              >
+                {togglingCompanyActive
+                  ? "Guardando..."
+                  : company.is_active
+                    ? "Desactivar empresa"
+                    : "Activar empresa"}
+              </button>
             </div>
           </div>
         ) : null}
