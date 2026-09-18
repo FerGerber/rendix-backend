@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireActiveStaff } from "@/lib/api/auth";
 import { getRegisteredCompany, resolveEnvironmentClient } from "@/lib/api/companies";
+import { ensureCurrentMonthSnapshot } from "@/lib/api/companyStats";
 import {
   isValidProfileRole,
   shouldGrantApprovalOnSupervisorAssignment,
@@ -155,6 +156,16 @@ export async function GET(request: Request, { params }: RouteParams) {
     ...user,
     default_cost_center_id: defaultCostCenterByUser.get(user.id) || null,
   }));
+
+  // Fire-and-forget: de paso que se carga la lista de usuarios (algo que
+  // ya pasa cada vez que alguien abre la ficha de la empresa), se deja
+  // guardada la foto mensual de referencia para facturación si todavía no
+  // hay una del mes en curso (ver lib/api/companyStats.ts). Si falla, no
+  // afecta la respuesta — solo queda logueado.
+  void ensureCurrentMonthSnapshot(company.id, {
+    users_total: users.length,
+    users_active: users.filter((user) => user.is_active).length,
+  });
 
   return NextResponse.json({ success: true, users });
 }
@@ -349,10 +360,11 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   // Alta de la identidad en Supabase Auth del entorno del cliente. Con
-  // "local" se manda una invitación real por mail (Supabase arma el link
-  // para que la persona ponga su contraseña). Con Google/Microsoft se
-  // pre-crea la cuenta con el email confirmado para poder linkear el
-  // perfil ya mismo — el primer login real con esa cuenta de Google
+  // "local" se crea la cuenta con una contraseña temporal generada acá
+  // mismo (ver generateTemporaryPassword) en vez de depender del mail de
+  // invitación de Supabase Auth. Con Google/Microsoft se pre-crea la
+  // cuenta con el email confirmado para poder linkear el perfil ya
+  // mismo — el primer login real con esa cuenta de Google
   // (Sign in with Google contra dev.rendixapp.com) ya se probó de punta a
   // punta con un alta real y linkeó correctamente contra este mismo
   // auth.users.id, sin duplicar identidad.
@@ -521,7 +533,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   if (temporaryPassword) {
     notes.push(
-      `Contraseña temporal para ${email}: ${temporaryPassword} — pasásela por un canal que no sea email (no se mandó ningún mail con esto) y avisale que se la va a pedir cambiar apenas entre. No se vuelve a mostrar.`
+      `Contraseña temporal para ${email}: ${temporaryPassword} — pasásela por un canal que no sea email (el mail que se manda solo avisa que la cuenta está lista, no lleva la contraseña) y avisale que se la va a pedir cambiar apenas entre. No se vuelve a mostrar.`
     );
   }
 
@@ -574,38 +586,40 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
   }
 
-  // Punto 1 de la ronda de mejoras post primer alta real: a diferencia de
-  // "local" (inviteUserByEmail manda su propio correo), admin.createUser()
-  // no le avisa nada a la persona — sin esto, el alta quedaba silenciosa y
-  // había que comunicarle a mano cómo entrar. No es bloqueante: si el
-  // envío falla (o esta backend no tiene Resend configurado todavía), el
-  // usuario ya quedó creado igual, solo se agrega un aviso para avisarle
-  // manualmente.
-  if (authProvider !== "local") {
-    const welcomeEmail = buildWelcomeEmail({
-      email,
-      fullName,
-      companyName: company.name,
-      provider: authProvider,
-    });
+  // Punto 1 de la ronda de mejoras post primer alta real: admin.createUser()
+  // no le avisa nada a la persona por sí solo — sin esto, el alta quedaba
+  // silenciosa y había que comunicarle a mano cómo entrar. Esto vale tanto
+  // para Google/Microsoft como para "local": para "local" el correo NO
+  // lleva la contraseña temporal (esa se pasa por otro canal, ver más
+  // arriba) — es solo un aviso de que la cuenta está lista. No es
+  // bloqueante: si el envío falla (o esta backend no tiene Resend
+  // configurado todavía), el usuario ya quedó creado igual, solo se agrega
+  // un aviso para avisarle manualmente.
+  const welcomeEmail = buildWelcomeEmail({
+    email,
+    fullName,
+    companyName: company.name,
+    provider: authProvider,
+  });
 
-    const emailResult = await sendEmail({
-      to: [email],
-      subject: welcomeEmail.subject,
-      text: welcomeEmail.text,
-      html: welcomeEmail.html,
-      idempotencyKey: `welcome-email:${authUserId}`,
-    });
+  const emailResult = await sendEmail({
+    to: [email],
+    subject: welcomeEmail.subject,
+    text: welcomeEmail.text,
+    html: welcomeEmail.html,
+    idempotencyKey: `welcome-email:${authUserId}`,
+  });
 
-    if (emailResult.status === "failed") {
-      notes.push(
-        "El usuario se creó pero no se pudo enviar el correo de bienvenida — avisale manualmente cómo ingresar."
-      );
-    } else if (emailResult.status === "skipped") {
-      notes.push(
-        "El usuario se creó pero el envío de correos no está configurado en esta backend (RESEND_API_KEY/EMAIL_FROM) — avisale manualmente cómo ingresar."
-      );
-    }
+  if (emailResult.status === "failed") {
+    notes.push(
+      authProvider === "local"
+        ? "El usuario se creó pero no se pudo enviar el correo de aviso — igual avisale por otro canal, junto con la contraseña temporal."
+        : "El usuario se creó pero no se pudo enviar el correo de bienvenida — avisale manualmente cómo ingresar."
+    );
+  } else if (emailResult.status === "skipped") {
+    notes.push(
+      "El usuario se creó pero el envío de correos no está configurado en esta backend (RESEND_API_KEY/EMAIL_FROM) — avisale manualmente cómo ingresar."
+    );
   }
 
   return NextResponse.json({

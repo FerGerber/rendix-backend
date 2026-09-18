@@ -43,6 +43,12 @@ type CostCenterOption = {
   is_active: boolean;
 };
 
+type CompanySnapshot = {
+  snapshot_month: string;
+  users_total: number;
+  users_active: number;
+};
+
 const ROLE_LABELS: Record<ProfileRole, string> = {
   employee: "Colaborador",
   hr: "RRHH",
@@ -86,6 +92,30 @@ const EMPTY_FORM: UserFormState = {
   canViewReports: false,
   canManageFinance: false,
 };
+
+const SNAPSHOT_MONTH_LABELS = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+function formatSnapshotMonth(snapshotMonth: string): string {
+  // snapshot_month llega como "YYYY-MM-01" (date de Postgres) — se parsea
+  // a mano en vez de con Date() para no depender de la zona horaria del
+  // navegador corriendo esta backend.
+  const [year, month] = snapshotMonth.split("-");
+  const label = SNAPSHOT_MONTH_LABELS[Number(month) - 1] || month;
+  return `${label} ${year}`;
+}
 
 function formFromUser(user: ManagedUser): UserFormState {
   return {
@@ -190,6 +220,12 @@ export default function CompanyDetailPage() {
   const [togglingCompanyActive, setTogglingCompanyActive] = useState(false);
   const [companyToggleError, setCompanyToggleError] = useState("");
 
+  // Historial de fotos mensuales de usuarios, para referencia de
+  // facturación (ver Backlog de Rendix: cobro por rangos de usuarios). El
+  // conteo EN VIVO de arriba (# usuarios / # activos) sale directo de
+  // `users`, ya cargado — esto es solo el respaldo mes a mes.
+  const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([]);
+
   const loadCompany = async () => {
     setCompanyLoading(true);
     setCompanyError("");
@@ -255,11 +291,29 @@ export default function CompanyDetailPage() {
     }
   };
 
+  const loadSnapshots = async () => {
+    try {
+      const response = await authenticatedFetch(
+        `/api/companies/${companyId}/snapshots`
+      );
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "No se pudieron cargar las fotos mensuales.");
+      }
+      setSnapshots(result.snapshots);
+    } catch (error) {
+      // No bloqueante: es solo el historial de referencia para
+      // facturación, el conteo en vivo de arriba sigue funcionando igual.
+      console.error("No se pudieron cargar las fotos mensuales:", error);
+    }
+  };
+
   useEffect(() => {
     if (!loading && !accessDenied && companyId) {
       loadCompany();
       loadUsers();
       loadCostCenters();
+      loadSnapshots();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, accessDenied, companyId]);
@@ -634,6 +688,55 @@ export default function CompanyDetailPage() {
             </div>
           </div>
         ) : null}
+
+        {company && (
+          <div className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-bold">Facturación — referencia</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Cantidad de usuarios de esta empresa, para ubicarla en su rango
+              de precio.
+            </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:max-w-xs">
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-2xl font-bold text-slate-900">
+                  {users.length}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Usuarios totales</p>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-2xl font-bold text-slate-900">
+                  {users.filter((user) => user.is_active).length}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Usuarios activos</p>
+              </div>
+            </div>
+
+            {snapshots.length > 0 && (
+              <div className="mt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Fotos mensuales
+                </p>
+                <div className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-100">
+                  {snapshots.map((snapshot) => (
+                    <div
+                      key={snapshot.snapshot_month}
+                      className="flex items-center justify-between px-3 py-2 text-sm"
+                    >
+                      <span className="capitalize text-slate-600">
+                        {formatSnapshotMonth(snapshot.snapshot_month)}
+                      </span>
+                      <span className="text-slate-500">
+                        {snapshot.users_total} usuarios ·{" "}
+                        {snapshot.users_active} activos
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-8 flex items-center justify-between gap-4">
           <h2 className="text-lg font-bold">Usuarios</h2>
