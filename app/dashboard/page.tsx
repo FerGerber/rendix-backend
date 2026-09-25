@@ -125,6 +125,24 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="mt-4 rounded-2xl bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold">Soporte</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Tickets de todas las empresas, bandeja única por última
+                actividad.
+              </p>
+            </div>
+            <Link
+              href="/support"
+              className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              Ir a Soporte
+            </Link>
+          </div>
+        </div>
+
         <div className="mt-8">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="text-lg font-bold">Facturación — referencia</h2>
