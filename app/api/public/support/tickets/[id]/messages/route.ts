@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   resolveClientCompanyByRemoteId,
   getActiveStaffEmails,
+  uploadSupportAttachment,
 } from "@/lib/api/support";
 import { sendEmail } from "@/lib/notifications/email";
 import { buildStaffNotificationEmail } from "@/lib/notifications/support-email";
@@ -38,6 +39,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     remote_company_id?: unknown;
     remote_profile_id?: unknown;
     body?: unknown;
+    attachment?: unknown;
   };
 
   try {
@@ -96,6 +98,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
+  // Mismo criterio que en la creación del ticket: se sube antes de
+  // insertar, y si falla no rompe el envío del mensaje (se guarda sin
+  // adjunto y se avisa con attachment_warning).
+  const uploadResult = await uploadSupportAttachment(id, body.attachment);
+
   const { data: message, error: messageError } = await supabaseAdmin
     .from("support_ticket_messages")
     .insert({
@@ -103,6 +110,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       sender_type: "cliente",
       sender_name: ticket.requester_name,
       body: messageBody,
+      attachment_url: uploadResult.attachment?.attachment_url ?? null,
+      attachment_filename: uploadResult.attachment?.attachment_filename ?? null,
     })
     .select(
       "id, sender_type, sender_name, body, attachment_url, attachment_filename, created_at"
@@ -152,5 +161,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
   }
 
-  return NextResponse.json({ success: true, message });
+  return NextResponse.json({
+    success: true,
+    message,
+    attachment_warning: uploadResult.error,
+  });
 }

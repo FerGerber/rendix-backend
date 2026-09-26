@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireActiveStaff } from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { withSupportAttachmentUrls } from "@/lib/api/support";
 import {
   SUPPORT_TICKET_STATUSES,
   type SupportTicketStatus,
@@ -60,7 +61,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   return NextResponse.json({
     success: true,
     ticket,
-    messages: messages || [],
+    messages: await withSupportAttachmentUrls(messages || []),
   });
 }
 

@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   resolveClientCompanyByRemoteId,
   getActiveStaffEmails,
+  uploadSupportAttachment,
 } from "@/lib/api/support";
 import { sendEmail } from "@/lib/notifications/email";
 import {
@@ -106,6 +107,7 @@ export async function POST(request: Request) {
     category?: unknown;
     message?: unknown;
     context_screen?: unknown;
+    attachment?: unknown;
   };
 
   try {
@@ -130,6 +132,7 @@ export async function POST(request: Request) {
       : "";
   const category = body.category;
   const message = typeof body.message === "string" ? body.message.trim() : "";
+  const attachmentInput = body.attachment;
   const contextScreen =
     typeof body.context_screen === "string" && body.context_screen.trim()
       ? body.context_screen.trim()
@@ -207,6 +210,14 @@ export async function POST(request: Request) {
     );
   }
 
+  // El adjunto (si vino) se sube ANTES de insertar el mensaje, para poder
+  // grabar attachment_url/attachment_filename en la misma fila — si la
+  // subida falla, no se rompe la creación del ticket: se guarda el mensaje
+  // sin adjunto y se avisa con attachment_warning en la respuesta (mismo
+  // criterio que sendEmail: un adjunto que falla no debería tirar abajo el
+  // resto de la operación).
+  const uploadResult = await uploadSupportAttachment(ticket.id, attachmentInput);
+
   const { error: messageError } = await supabaseAdmin
     .from("support_ticket_messages")
     .insert({
@@ -214,6 +225,8 @@ export async function POST(request: Request) {
       sender_type: "cliente",
       sender_name: requesterName,
       body: message,
+      attachment_url: uploadResult.attachment?.attachment_url ?? null,
+      attachment_filename: uploadResult.attachment?.attachment_filename ?? null,
     });
 
   if (messageError) {
@@ -273,5 +286,9 @@ export async function POST(request: Request) {
 
   await Promise.all(emailTasks);
 
-  return NextResponse.json({ success: true, ticket });
+  return NextResponse.json({
+    success: true,
+    ticket,
+    attachment_warning: uploadResult.error,
+  });
 }

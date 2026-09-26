@@ -299,6 +299,30 @@ export default function SupportTicketPage() {
                 >
                   {message.body}
                 </p>
+                {message.attachment_url && (
+                  <a
+                    href={message.attachment_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 block w-fit"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={message.attachment_url}
+                      alt={message.attachment_filename || "Adjunto"}
+                      className="max-h-40 rounded-lg border border-black/10 object-cover"
+                    />
+                    <span
+                      className={`mt-1 block truncate text-xs underline ${
+                        isStaff && !message.is_internal_note
+                          ? "text-blue-100"
+                          : "text-slate-500"
+                      }`}
+                    >
+                      {message.attachment_filename || "Ver adjunto"}
+                    </span>
+                  </a>
+                )}
               </div>
             );
           })}

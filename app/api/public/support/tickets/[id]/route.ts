@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireSupportServiceSecret } from "@/lib/api/support-service-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { resolveClientCompanyByRemoteId } from "@/lib/api/support";
+import {
+  resolveClientCompanyByRemoteId,
+  withSupportAttachmentUrls,
+} from "@/lib/api/support";
 import {
   RENDIX_CLIENT_ENVIRONMENTS,
   type RendixClientEnvironment,
@@ -91,6 +94,6 @@ export async function GET(request: Request, { params }: RouteParams) {
   return NextResponse.json({
     success: true,
     ticket,
-    messages: messages || [],
+    messages: await withSupportAttachmentUrls(messages || []),
   });
 }

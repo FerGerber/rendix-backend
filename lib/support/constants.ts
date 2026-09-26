@@ -22,3 +22,17 @@ export const SUPPORT_TICKET_STATUSES = [
 
 export type SupportTicketStatus =
   (typeof SUPPORT_TICKET_STATUSES)[number]["value"];
+
+// Adjuntos (la captura de pantalla que manda el cliente) — ver
+// lib/api/support.ts (subida + URL firmada) y la migración
+// 20260926000000_support_attachments_bucket.sql. Solo imágenes por ahora:
+// alcanza para una captura de pantalla y evita tener que pensar en preview
+// de otros formatos en el hilo.
+export const SUPPORT_ATTACHMENT_MAX_BYTES = 3 * 1024 * 1024; // 3 MB
+
+export const SUPPORT_ATTACHMENT_ALLOWED_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
