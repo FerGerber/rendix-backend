@@ -235,10 +235,14 @@ export default function SupportTicketPage() {
               {ticket.requester_name} · {ticket.requester_email}
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              {categoryLabel(ticket.category)}
-              {ticket.context_screen ? ` · ${ticket.context_screen}` : ""} ·
-              Creado {formatDateTime(ticket.created_at)}
+              {categoryLabel(ticket.category)} · Creado{" "}
+              {formatDateTime(ticket.created_at)}
             </p>
+            {ticket.context_screen && (
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Pantalla: {ticket.context_screen}
+              </p>
+            )}
           </div>
 
           <div className="shrink-0">
