@@ -57,6 +57,55 @@ export function buildClientReplyEmail(input: ClientReplyEmailInput) {
   return { subject, text, html };
 }
 
+// Confirmación al cliente apenas crea el ticket — el panel ya se lo
+// confirma en pantalla, esto es el respaldo por mail que pedía la
+// propuesta original ("Confirmación en el panel + mail de confirmación").
+type ClientConfirmationEmailInput = {
+  requesterName: string;
+  ticketNumber: number;
+  categoryLabel: string;
+  messageBody: string;
+};
+
+export function buildClientTicketConfirmationEmail(
+  input: ClientConfirmationEmailInput
+) {
+  const firstName = input.requesterName.trim().split(/\s+/)[0] || null;
+  const greeting = firstName ? `Hola ${firstName},` : "Hola,";
+  const subject = `Recibimos tu consulta #${input.ticketNumber} — Rendix`;
+
+  const text = [
+    greeting,
+    "",
+    `Recibimos tu consulta (${input.categoryLabel}) y te vamos a responder a la brevedad:`,
+    "",
+    input.messageBody,
+    "",
+    `Podés seguir el estado y sumar más información en "Mis consultas", dentro de Rendix.`,
+    "",
+    "— Rendix",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #0f172a; line-height: 1.6;">
+      <p>${greeting}</p>
+      <p>Recibimos tu consulta (<strong>${escapeHtml(
+        input.categoryLabel
+      )}</strong>) y te vamos a responder a la brevedad:</p>
+      <blockquote style="margin: 12px 0; padding: 12px 16px; border-left: 3px solid #2563eb; background: #f8fafc;">
+        ${escapeHtml(input.messageBody).replace(/\n/g, "<br />")}
+      </blockquote>
+      <p>
+        Podés seguir el estado y sumar más información en
+        "Mis consultas", dentro de Rendix.
+      </p>
+      <p>— Rendix</p>
+    </div>
+  `.trim();
+
+  return { subject, text, html };
+}
+
 // Aviso al staff activo cuando entra un ticket nuevo o un mensaje de
 // seguimiento del cliente — para no tener que estar mirando el backend
 // todo el día (ver la propuesta "Sistema de soporte" del 2026-09-18).

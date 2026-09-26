@@ -130,11 +130,11 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   await supabaseAdmin.from("support_tickets").update(updates).eq("id", id);
 
-  // Fire-and-forget, mismo criterio que la creación del ticket.
-  void (async () => {
-    const staffEmails = await getActiveStaffEmails();
-    if (staffEmails.length === 0) return;
-
+  // Se espera el envío (ver el comentario equivalente en
+  // tickets/route.ts): en Vercel, una promesa sin awaitear puede cortarse
+  // apenas se devuelve la respuesta y el mail nunca sale.
+  const staffEmails = await getActiveStaffEmails();
+  if (staffEmails.length > 0) {
     const notification = buildStaffNotificationEmail({
       kind: "new_message",
       ticketNumber: ticket.ticket_number,
@@ -150,7 +150,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       html: notification.html,
       idempotencyKey: `support-new-message:${message.id}`,
     });
-  })();
+  }
 
   return NextResponse.json({ success: true, message });
 }

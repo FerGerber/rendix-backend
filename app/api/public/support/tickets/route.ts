@@ -6,7 +6,10 @@ import {
   getActiveStaffEmails,
 } from "@/lib/api/support";
 import { sendEmail } from "@/lib/notifications/email";
-import { buildStaffNotificationEmail } from "@/lib/notifications/support-email";
+import {
+  buildStaffNotificationEmail,
+  buildClientTicketConfirmationEmail,
+} from "@/lib/notifications/support-email";
 import {
   SUPPORT_TICKET_CATEGORIES,
   type SupportTicketCategory,
@@ -223,13 +226,31 @@ export async function POST(request: Request) {
     );
   }
 
-  // Fire-and-forget a propósito: si el mail falla, el ticket ya quedó
-  // creado igual — el staff lo ve de todas formas en la bandeja de
-  // rendix-backend.
-  void (async () => {
-    const staffEmails = await getActiveStaffEmails();
-    if (staffEmails.length === 0) return;
+  // Se esperan los dos mails (no "fire-and-forget"): en un runtime
+  // serverless como Vercel, una promesa que se deja correr sin awaitear
+  // puede cortarse a mitad de camino en cuanto la función devuelve la
+  // respuesta, y el mail nunca termina de salir. Si igual falla, no rompe
+  // la creación del ticket (sendEmail nunca tira excepción, devuelve un
+  // resultado) — el ticket ya quedó creado y visible en la bandeja.
+  const clientConfirmation = buildClientTicketConfirmationEmail({
+    requesterName,
+    ticketNumber: ticket.ticket_number,
+    categoryLabel: categoryLabel(category),
+    messageBody: message,
+  });
 
+  const emailTasks: Promise<unknown>[] = [
+    sendEmail({
+      to: [requesterEmail],
+      subject: clientConfirmation.subject,
+      text: clientConfirmation.text,
+      html: clientConfirmation.html,
+      idempotencyKey: `support-confirmation:${ticket.id}`,
+    }),
+  ];
+
+  const staffEmails = await getActiveStaffEmails();
+  if (staffEmails.length > 0) {
     const notification = buildStaffNotificationEmail({
       kind: "new_ticket",
       ticketNumber: ticket.ticket_number,
@@ -239,14 +260,18 @@ export async function POST(request: Request) {
       messageBody: message,
     });
 
-    await sendEmail({
-      to: staffEmails,
-      subject: notification.subject,
-      text: notification.text,
-      html: notification.html,
-      idempotencyKey: `support-new-ticket:${ticket.id}`,
-    });
-  })();
+    emailTasks.push(
+      sendEmail({
+        to: staffEmails,
+        subject: notification.subject,
+        text: notification.text,
+        html: notification.html,
+        idempotencyKey: `support-new-ticket:${ticket.id}`,
+      })
+    );
+  }
+
+  await Promise.all(emailTasks);
 
   return NextResponse.json({ success: true, ticket });
 }
