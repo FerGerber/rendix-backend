@@ -18,6 +18,12 @@ export type AuthenticatedStaff = {
   email: string;
   full_name: string | null;
   can_manage_staff: boolean;
+  // Empresas (client_companies.id) a las que este staff tiene acceso.
+  // Solo importa cuando can_manage_staff es false: quien gestiona el
+  // equipo ve siempre todas las empresas y tickets, sin mirar esta
+  // lista. Para el resto, vacío significa que todavía no ve ninguna
+  // (ver canAccessCompany más abajo y la pantalla de Equipo).
+  company_access: string[];
 };
 
 type StaffRow = {
@@ -115,6 +121,19 @@ export async function requireActiveStaff(
     };
   }
 
+  // Quien gestiona el equipo ve todas las empresas siempre — no hace
+  // falta ni tiene sentido consultar staff_company_access para esa
+  // persona (hoy es prácticamente cada request, así que evitar la
+  // consulta de más no es un detalle menor).
+  let companyAccess: string[] = [];
+  if (!resolvedStaff.can_manage_staff) {
+    const { data: accessRows } = await supabaseAdmin
+      .from("staff_company_access")
+      .select("company_id")
+      .eq("staff_id", resolvedStaff.staff_id);
+    companyAccess = (accessRows || []).map((row) => row.company_id as string);
+  }
+
   return {
     staff: {
       staff_id: resolvedStaff.staff_id,
@@ -122,8 +141,26 @@ export async function requireActiveStaff(
       email: resolvedStaff.email,
       full_name: resolvedStaff.full_name,
       can_manage_staff: resolvedStaff.can_manage_staff,
+      company_access: companyAccess,
     },
   };
+}
+
+// Managers ven todas las empresas siempre. El resto del staff solo ve
+// las que tiene asignadas en staff_company_access (vacío = ninguna
+// todavía) — ver la propuesta de segmentación de soporte por empresa.
+export function canAccessCompany(
+  staff: AuthenticatedStaff,
+  companyId: string
+): boolean {
+  return staff.can_manage_staff || staff.company_access.includes(companyId);
+}
+
+export function companyAccessDeniedResponse(): NextResponse {
+  return NextResponse.json(
+    { success: false, error: "No tenés acceso a esta empresa." },
+    { status: 403 }
+  );
 }
 
 // Guarda adicional para las rutas de gestión de equipo (invitar,

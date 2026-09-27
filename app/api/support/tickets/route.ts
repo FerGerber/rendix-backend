@@ -49,6 +49,12 @@ export async function GET(request: Request) {
     );
   }
 
+  // Quien no gestiona el equipo solo ve tickets de las empresas que
+  // tiene asignadas (ver canAccessCompany en lib/api/auth.ts).
+  if (!auth.staff.can_manage_staff && auth.staff.company_access.length === 0) {
+    return NextResponse.json({ success: true, tickets: [] });
+  }
+
   let query = supabaseAdmin
     .from("support_tickets")
     .select(
@@ -59,6 +65,9 @@ export async function GET(request: Request) {
   if (statusFilter) query = query.eq("status", statusFilter);
   if (categoryFilter) query = query.eq("category", categoryFilter);
   if (companyFilter) query = query.eq("company_id", companyFilter);
+  if (!auth.staff.can_manage_staff) {
+    query = query.in("company_id", auth.staff.company_access);
+  }
 
   const { data, error } = await query;
 

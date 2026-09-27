@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { getRegisteredCompany, resolveEnvironmentClient } from "@/lib/api/companies";
 import { ensureCurrentMonthSnapshot } from "@/lib/api/companyStats";
 import {
@@ -110,6 +114,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     );
   }
 
+  if (!canAccessCompany(auth.staff, company.id)) {
+    return companyAccessDeniedResponse();
+  }
+
   const envResult = resolveEnvironmentClient(company.environment);
   if ("response" in envResult) return envResult.response;
   const environmentClient = envResult.client;
@@ -181,6 +189,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró la empresa." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, company.id)) {
+    return companyAccessDeniedResponse();
   }
 
   let body: {

@@ -1,9 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useStaffSession } from "@/lib/hooks/useStaffSession";
 import { authenticatedFetch } from "@/lib/api/client";
+
+// Mismo email protegido que valida app/api/staff/[id]/route.ts en el
+// servidor — acá es solo para no ofrecer un botón que el servidor va a
+// rechazar igual (la protección real está del lado del servidor).
+const PROTECTED_OWNER_EMAIL = "fernando.gerber1@gmail.com";
 
 type StaffRow = {
   staff_id: string;
@@ -14,7 +19,10 @@ type StaffRow = {
   can_manage_staff: boolean;
   invited_at: string | null;
   created_at: string;
+  company_access: string[];
 };
+
+type CompanyOption = { id: string; name: string };
 
 export default function TeamPage() {
   const { loading, accessDenied, staff } = useStaffSession();
@@ -32,6 +40,25 @@ export default function TeamPage() {
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState("");
+
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(
+    null
+  );
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Empresas para armar el checklist de acceso por persona. Se carga
+  // con /api/companies, que ya devuelve todas para quien gestiona el
+  // equipo (la única que ve esta pantalla) — no hace falta una ruta
+  // aparte.
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [expandedCompaniesId, setExpandedCompaniesId] = useState<
+    string | null
+  >(null);
+  const [pendingCompanyIds, setPendingCompanyIds] = useState<string[]>([]);
+  const [savingCompaniesId, setSavingCompaniesId] = useState<string | null>(
+    null
+  );
+  const [companiesPanelError, setCompaniesPanelError] = useState("");
 
   const loadTeam = async () => {
     if (!teamLoadedOnceRef.current) {
@@ -61,6 +88,23 @@ export default function TeamPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, accessDenied]);
+
+  useEffect(() => {
+    if (loading || accessDenied || !staff?.can_manage_staff) return;
+
+    (async () => {
+      try {
+        const response = await authenticatedFetch("/api/companies");
+        const result = await response.json();
+        if (response.ok && result.success) {
+          setCompanies(result.companies);
+        }
+      } catch {
+        // Se usa solo para armar el checklist de acceso — si falla, se
+        // puede seguir usando el resto de la pantalla igual.
+      }
+    })();
+  }, [loading, accessDenied, staff?.can_manage_staff]);
 
   const handleInvite = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -118,6 +162,74 @@ export default function TeamPage() {
       );
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const toggleCompaniesPanel = (member: StaffRow) => {
+    setCompaniesPanelError("");
+    if (expandedCompaniesId === member.staff_id) {
+      setExpandedCompaniesId(null);
+      return;
+    }
+    setExpandedCompaniesId(member.staff_id);
+    setPendingCompanyIds(member.company_access);
+  };
+
+  const toggleCompanyChecked = (companyId: string) => {
+    setPendingCompanyIds((current) =>
+      current.includes(companyId)
+        ? current.filter((id) => id !== companyId)
+        : [...current, companyId]
+    );
+  };
+
+  const saveCompanyAccess = async (member: StaffRow) => {
+    setSavingCompaniesId(member.staff_id);
+    setCompaniesPanelError("");
+    try {
+      const response = await authenticatedFetch(
+        `/api/staff/${member.staff_id}/companies`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_ids: pendingCompanyIds }),
+        }
+      );
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "No se pudo guardar el acceso.");
+      }
+      setExpandedCompaniesId(null);
+      await loadTeam();
+    } catch (error) {
+      setCompaniesPanelError(
+        error instanceof Error ? error.message : "No se pudo guardar el acceso."
+      );
+    } finally {
+      setSavingCompaniesId(null);
+    }
+  };
+
+  const handleDelete = async (member: StaffRow) => {
+    setDeletingId(member.staff_id);
+    setRowError("");
+    try {
+      const response = await authenticatedFetch(
+        `/api/staff/${member.staff_id}`,
+        { method: "DELETE" }
+      );
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "No se pudo eliminar.");
+      }
+      setConfirmingDeleteId(null);
+      await loadTeam();
+    } catch (error) {
+      setRowError(
+        error instanceof Error ? error.message : "No se pudo eliminar."
+      );
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -244,11 +356,11 @@ export default function TeamPage() {
               {team.map((member) => {
                 const isSelf = member.staff_id === staff?.staff_id;
                 const isPending = !member.id;
+                const isProtectedOwner =
+                  member.email.toLowerCase() === PROTECTED_OWNER_EMAIL;
                 return (
-                  <div
-                    key={member.staff_id}
-                    className="flex flex-wrap items-center justify-between gap-3 p-4"
-                  >
+                  <Fragment key={member.staff_id}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-4">
                     <div>
                       <p className="font-semibold text-slate-900">
                         {member.full_name || member.email}
@@ -258,6 +370,14 @@ export default function TeamPage() {
                         {member.email}
                         {isPending ? " · Invitación pendiente" : ""}
                         {member.can_manage_staff ? " · Gestiona el equipo" : ""}
+                        {isProtectedOwner ? " · Cuenta protegida" : ""}
+                        {!member.can_manage_staff
+                          ? member.company_access.length === 0
+                            ? " · Sin empresas asignadas (no ve ninguna)"
+                            : ` · Acceso a ${member.company_access.length} empresa${
+                                member.company_access.length === 1 ? "" : "s"
+                              }`
+                          : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -276,7 +396,8 @@ export default function TeamPage() {
                             type="button"
                             disabled={
                               updatingId === member.staff_id ||
-                              (isSelf && member.is_active)
+                              ((isSelf || isProtectedOwner) &&
+                                member.is_active)
                             }
                             onClick={() =>
                               updateMember(member, {
@@ -291,7 +412,8 @@ export default function TeamPage() {
                             type="button"
                             disabled={
                               updatingId === member.staff_id ||
-                              (isSelf && member.can_manage_staff)
+                              ((isSelf || isProtectedOwner) &&
+                                member.can_manage_staff)
                             }
                             onClick={() =>
                               updateMember(member, {
@@ -304,10 +426,123 @@ export default function TeamPage() {
                               ? "Sacar gestión"
                               : "Dar gestión"}
                           </button>
+                          {/* Quien gestiona el equipo ve todas las empresas
+                              siempre — este control solo tiene sentido, y
+                              solo se ofrece, para el resto. */}
+                          {!member.can_manage_staff && (
+                            <button
+                              type="button"
+                              onClick={() => toggleCompaniesPanel(member)}
+                              className="text-xs font-medium text-blue-600 hover:underline"
+                            >
+                              {expandedCompaniesId === member.staff_id
+                                ? "Cerrar"
+                                : "Empresas..."}
+                            </button>
+                          )}
+                          {/* Nadie puede eliminar su propia cuenta, ni la
+                              del dueño de la aplicación (ver
+                              PROTECTED_OWNER_EMAIL) — para que el equipo
+                              nunca se quede sin nadie que pueda revertirlo. */}
+                          {!isSelf &&
+                            !isProtectedOwner &&
+                            (confirmingDeleteId === member.staff_id ? (
+                              <>
+                                <span className="text-xs font-medium text-red-600">
+                                  ¿Seguro?
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={deletingId === member.staff_id}
+                                  onClick={() => handleDelete(member)}
+                                  className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-40"
+                                >
+                                  {deletingId === member.staff_id
+                                    ? "Eliminando..."
+                                    : "Sí, eliminar"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmingDeleteId(null)}
+                                  className="text-xs font-medium text-slate-500 hover:underline"
+                                >
+                                  Cancelar
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setConfirmingDeleteId(member.staff_id)
+                                }
+                                className="text-xs font-medium text-red-600 hover:underline"
+                              >
+                                Eliminar
+                              </button>
+                            ))}
                         </>
                       )}
                     </div>
                   </div>
+
+                  {expandedCompaniesId === member.staff_id && (
+                    <div className="border-t border-slate-100 bg-slate-50 p-4">
+                      <p className="text-xs font-semibold text-slate-700">
+                        Empresas a las que{" "}
+                        {member.full_name || member.email} tiene acceso
+                      </p>
+                      {companies.length === 0 ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          Todavía no hay empresas cargadas.
+                        </p>
+                      ) : (
+                        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                          {companies.map((company) => (
+                            <label
+                              key={company.id}
+                              className="flex items-center gap-2 text-xs text-slate-700"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={pendingCompanyIds.includes(company.id)}
+                                onChange={() =>
+                                  toggleCompanyChecked(company.id)
+                                }
+                              />
+                              {company.name}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+
+                      {companiesPanelError && (
+                        <p className="mt-2 text-xs font-medium text-red-600">
+                          {companiesPanelError}
+                        </p>
+                      )}
+
+                      <div className="mt-3 flex gap-3">
+                        <button
+                          type="button"
+                          disabled={savingCompaniesId === member.staff_id}
+                          onClick={() => saveCompanyAccess(member)}
+                          className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          {savingCompaniesId === member.staff_id
+                            ? "Guardando..."
+                            : "Guardar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCompaniesId(null)}
+                          className="text-xs font-medium text-slate-500 hover:underline"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  </Fragment>
                 );
               })}
             </div>

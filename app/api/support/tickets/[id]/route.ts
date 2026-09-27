@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { withSupportAttachmentUrls } from "@/lib/api/support";
 import {
@@ -38,6 +42,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró el ticket." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, ticket.company_id)) {
+    return companyAccessDeniedResponse();
   }
 
   const { data: messages, error: messagesError } = await supabaseAdmin
@@ -86,6 +94,23 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { success: false, error: "El estado indicado no es válido." },
       { status: 400 }
     );
+  }
+
+  const { data: existingTicket, error: existingError } = await supabaseAdmin
+    .from("support_tickets")
+    .select("id, company_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (existingError || !existingTicket) {
+    return NextResponse.json(
+      { success: false, error: "No se encontró el ticket." },
+      { status: 404 }
+    );
+  }
+
+  if (!canAccessCompany(auth.staff, existingTicket.company_id)) {
+    return companyAccessDeniedResponse();
   }
 
   const { data: updated, error } = await supabaseAdmin

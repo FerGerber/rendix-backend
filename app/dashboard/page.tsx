@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useStaffSession } from "@/lib/hooks/useStaffSession";
 import { authenticatedFetch } from "@/lib/api/client";
+import SignOutButton from "@/components/SignOutButton";
 
 type CompanyStatsRow = {
   id: string;
@@ -101,12 +102,17 @@ export default function DashboardPage() {
   return (
     <main className="min-h-dvh bg-slate-50 px-6 py-10 text-slate-900">
       <div className="mx-auto max-w-4xl">
-        <p className="text-sm font-bold uppercase tracking-wide text-blue-600">
-          Backend interna
-        </p>
-        <h1 className="mt-2 text-3xl font-bold">
-          Hola, {staff?.full_name || staff?.email}
-        </h1>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-wide text-blue-600">
+              Backend interna
+            </p>
+            <h1 className="mt-2 text-3xl font-bold">
+              Hola, {staff?.full_name || staff?.email}
+            </h1>
+          </div>
+          <SignOutButton />
+        </div>
 
         <div className="mt-8 rounded-2xl bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { getRegisteredCompany } from "@/lib/api/companies";
 import { getRecentSnapshots } from "@/lib/api/companyStats";
 
@@ -20,6 +24,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró la empresa." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, company.id)) {
+    return companyAccessDeniedResponse();
   }
 
   const snapshots = await getRecentSnapshots(id);

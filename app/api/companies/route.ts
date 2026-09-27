@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import { requireActiveStaff, requireStaffManager } from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   getEnvironmentServiceClient,
@@ -21,12 +21,25 @@ export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
   if ("response" in auth) return auth.response;
 
-  const { data, error } = await supabaseAdmin
+  // Quien no gestiona el equipo solo ve las empresas que tiene
+  // asignadas (ver canAccessCompany / staff_company_access) — vacío
+  // significa que todavía no tiene ninguna, no "todas".
+  if (!auth.staff.can_manage_staff && auth.staff.company_access.length === 0) {
+    return NextResponse.json({ success: true, companies: [] });
+  }
+
+  let query = supabaseAdmin
     .from("client_companies")
     .select(
       "id, environment, remote_company_id, name, tax_id, base_currency, is_active, created_at"
     )
     .order("created_at", { ascending: false });
+
+  if (!auth.staff.can_manage_staff) {
+    query = query.in("id", auth.staff.company_access);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return NextResponse.json(
@@ -38,8 +51,12 @@ export async function GET(request: Request) {
   return NextResponse.json({ success: true, companies: data || [] });
 }
 
+// Crear una empresa nueva queda reservado a quien gestiona el equipo:
+// una persona con acceso limitado a ciertas empresas gestiona esas
+// empresas, no da de alta empresas nuevas (que además nacen sin ninguna
+// asignación — habría que decidir a mano quién las ve).
 export async function POST(request: Request) {
-  const auth = await requireActiveStaff(request);
+  const auth = await requireStaffManager(request);
   if ("response" in auth) return auth.response;
 
   let body: {

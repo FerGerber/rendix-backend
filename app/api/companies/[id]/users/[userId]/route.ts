@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { getRegisteredCompany, resolveEnvironmentClient } from "@/lib/api/companies";
 import {
   isValidProfileRole,
@@ -44,6 +48,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró la empresa." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, company.id)) {
+    return companyAccessDeniedResponse();
   }
 
   const envResult = resolveEnvironmentClient(company.environment);

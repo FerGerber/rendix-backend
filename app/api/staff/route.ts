@@ -27,7 +27,38 @@ export async function GET(request: Request) {
     );
   }
 
-  return NextResponse.json({ success: true, staff: data || [] });
+  const staffRows = data || [];
+
+  // Se junta acá el acceso por empresa de cada fila (una sola consulta
+  // para todo el equipo, no una por persona) para que la pantalla de
+  // Equipo pueda mostrar y editar las asignaciones sin otro round-trip.
+  const { data: accessRows, error: accessError } = await supabaseAdmin
+    .from("staff_company_access")
+    .select("staff_id, company_id");
+
+  if (accessError) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `No se pudo cargar el acceso por empresa: ${accessError.message}`,
+      },
+      { status: 500 }
+    );
+  }
+
+  const accessByStaffId = new Map<string, string[]>();
+  for (const row of accessRows || []) {
+    const list = accessByStaffId.get(row.staff_id) || [];
+    list.push(row.company_id);
+    accessByStaffId.set(row.staff_id, list);
+  }
+
+  const staff = staffRows.map((row) => ({
+    ...row,
+    company_access: accessByStaffId.get(row.staff_id) || [],
+  }));
+
+  return NextResponse.json({ success: true, staff });
 }
 
 // Invita a alguien nuevo por mail. Todavía no existe su cuenta de Auth

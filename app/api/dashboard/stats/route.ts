@@ -21,10 +21,29 @@ export async function GET(request: Request) {
   const auth = await requireActiveStaff(request);
   if ("response" in auth) return auth.response;
 
-  const { data: companies, error } = await supabaseAdmin
+  // Igual que en /api/companies: quien no gestiona el equipo solo ve
+  // estadísticas de las empresas que tiene asignadas, para que estos
+  // números no muestren más de lo que esa persona puede después abrir.
+  if (!auth.staff.can_manage_staff && auth.staff.company_access.length === 0) {
+    return NextResponse.json({
+      success: true,
+      companies: { total: 0, active: 0, inactive: 0 },
+      users: { total: 0, active: 0 },
+      companies_detail: [],
+      environments_pending: false,
+    });
+  }
+
+  let companiesQuery = supabaseAdmin
     .from("client_companies")
     .select("id, environment, remote_company_id, name, is_active")
     .order("name", { ascending: true });
+
+  if (!auth.staff.can_manage_staff) {
+    companiesQuery = companiesQuery.in("id", auth.staff.company_access);
+  }
+
+  const { data: companies, error } = await companiesQuery;
 
   if (error) {
     return NextResponse.json(

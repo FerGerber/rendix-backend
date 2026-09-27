@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { getRegisteredCompany, resolveEnvironmentClient } from "@/lib/api/companies";
 import { parseSpreadsheetFile, parseBooleanCell } from "@/lib/catalogs/parseSpreadsheet";
 
@@ -31,6 +35,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró la empresa." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, company.id)) {
+    return companyAccessDeniedResponse();
   }
 
   let formData: FormData;

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   getEnvironmentServiceClient,
@@ -30,6 +34,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     );
   }
 
+  if (!canAccessCompany(auth.staff, data.id)) {
+    return companyAccessDeniedResponse();
+  }
+
   return NextResponse.json({ success: true, company: data });
 }
 
@@ -50,6 +58,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró la empresa." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, existing.id)) {
+    return companyAccessDeniedResponse();
   }
 
   let body: {

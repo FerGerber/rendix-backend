@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireActiveStaff } from "@/lib/api/auth";
+import {
+  requireActiveStaff,
+  canAccessCompany,
+  companyAccessDeniedResponse,
+} from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/notifications/email";
 import { buildClientReplyEmail } from "@/lib/notifications/support-email";
@@ -18,7 +22,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const { data: ticket, error: ticketError } = await supabaseAdmin
     .from("support_tickets")
-    .select("id, ticket_number, requester_email, requester_name")
+    .select("id, ticket_number, requester_email, requester_name, company_id")
     .eq("id", id)
     .single();
 
@@ -27,6 +31,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       { success: false, error: "No se encontró el ticket." },
       { status: 404 }
     );
+  }
+
+  if (!canAccessCompany(auth.staff, ticket.company_id)) {
+    return companyAccessDeniedResponse();
   }
 
   let body: { body?: unknown; is_internal_note?: unknown };
