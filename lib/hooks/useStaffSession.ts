@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { authenticatedFetch } from "@/lib/api/client";
 
 export type StaffProfile = {
+  staff_id: string;
   id: string;
   email: string;
   full_name: string | null;
-  is_active: boolean;
+  can_manage_staff: boolean;
 };
 
 type StaffSessionState = {
@@ -17,13 +19,16 @@ type StaffSessionState = {
 };
 
 // Hook compartido por todas las pantallas del dashboard: redirige a /login
-// si no hay sesión, y chequea contra staff_users si la cuenta está
-// habilitada. Es el mismo chequeo client-side que ya hacía
-// app/dashboard/page.tsx, extraído acá para no repetirlo en cada pantalla
-// nueva (empresas, usuarios, cuentas contables, etc). La protección real
-// de datos sigue pasando por requireActiveStaff del lado del servidor
-// (lib/api/auth.ts) — esto es solo para no mostrar la pantalla a quien no
-// corresponde.
+// si no hay sesión, y chequea si la cuenta está habilitada. Antes hacía
+// esto último con un query directo a staff_users desde el cliente (RLS
+// solo dejaba leer la propia fila YA linkeada por id) — eso funcionaba
+// para el staff de siempre, pero nunca iba a poder linkear una fila
+// pendiente (invitada por mail, con id todavía null: RLS exige
+// auth.uid() = id). Se pasó a pedirle esto a /api/staff/me, que corre del
+// lado del servidor con requireActiveStaff y sí puede linkear esa fila en
+// el momento. La protección real de datos sigue pasando por
+// requireActiveStaff en cada ruta (lib/api/auth.ts) — esto es solo para no
+// mostrar la pantalla a quien no corresponde.
 export function useStaffSession(): StaffSessionState {
   const [state, setState] = useState<StaffSessionState>({
     loading: true,
@@ -42,20 +47,23 @@ export function useStaffSession(): StaffSessionState {
         return;
       }
 
-      const { data: staffData, error } = await supabase
-        .from("staff_users")
-        .select("id, email, full_name, is_active")
-        .eq("id", authData.user.id)
-        .single();
+      try {
+        const response = await authenticatedFetch("/api/staff/me");
+        const result = await response.json();
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      if (error || !staffData || !staffData.is_active) {
-        setState({ loading: false, accessDenied: true, staff: null });
-        return;
+        if (!response.ok || !result.success) {
+          setState({ loading: false, accessDenied: true, staff: null });
+          return;
+        }
+
+        setState({ loading: false, accessDenied: false, staff: result.staff });
+      } catch {
+        if (!cancelled) {
+          setState({ loading: false, accessDenied: true, staff: null });
+        }
       }
-
-      setState({ loading: false, accessDenied: false, staff: staffData });
     };
 
     load();

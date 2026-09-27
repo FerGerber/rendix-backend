@@ -143,6 +143,23 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <div className="mt-4 rounded-2xl bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold">Equipo</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Quién tiene acceso a esta backend interna.
+              </p>
+            </div>
+            <Link
+              href="/team"
+              className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              Ir a Equipo
+            </Link>
+          </div>
+        </div>
+
         <div className="mt-8">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="text-lg font-bold">Facturación — referencia</h2>
