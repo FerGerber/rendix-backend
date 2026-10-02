@@ -612,6 +612,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     fullName,
     companyName: company.name,
     provider: authProvider,
+    environment: company.environment,
   });
 
   const emailResult = await sendEmail({
