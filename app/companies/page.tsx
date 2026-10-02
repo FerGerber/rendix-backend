@@ -10,11 +10,15 @@ import {
   type RendixClientEnvironment,
 } from "@/lib/environments";
 
-// Hoy solo "development" tiene credenciales de servicio cargadas (ver
-// .env.local / .env.example). Los otros 3 entornos se habilitan acá recién
-// cuando se carguen sus credenciales — hasta entonces se muestran
-// deshabilitados para no ofrecer una opción que va a fallar al crear.
-const CONFIGURED_ENVIRONMENTS: RendixClientEnvironment[] = ["development"];
+// "development" y "production" ya tienen credenciales de servicio
+// cargadas (ver RENDIX_{ENTORNO}_SUPABASE_URL / ..._SERVICE_ROLE_KEY en
+// Vercel). "presales" y "testing" se habilitan acá recién cuando se
+// carguen sus credenciales — hasta entonces se muestran deshabilitados
+// para no ofrecer una opción que va a fallar al crear.
+const CONFIGURED_ENVIRONMENTS: RendixClientEnvironment[] = [
+  "development",
+  "production",
+];
 
 type ClientCompany = {
   id: string;
