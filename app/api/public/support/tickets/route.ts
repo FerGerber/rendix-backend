@@ -250,6 +250,7 @@ export async function POST(request: Request) {
     ticketNumber: ticket.ticket_number,
     categoryLabel: categoryLabel(category),
     messageBody: message,
+    environment,
   });
 
   const emailTasks: Promise<unknown>[] = [
@@ -271,6 +272,7 @@ export async function POST(request: Request) {
       categoryLabel: categoryLabel(category),
       requesterName,
       messageBody: message,
+      environment,
     });
 
     emailTasks.push(

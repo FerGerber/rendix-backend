@@ -1,13 +1,18 @@
 import "server-only";
 
+import type { RendixClientEnvironment } from "@/lib/environments";
+import { getAppUrl } from "./app-url";
+
 // Correo al cliente cuando el staff responde su ticket en la ticketera de
 // rendix-backend (ver la propuesta "Sistema de soporte" del 2026-09-18).
 // No lleva el cuerpo completo del hilo, solo el mensaje nuevo — el link
 // lleva a "Mis consultas" en rendi-platform para ver el hilo completo.
-const APP_URL = (
-  process.env.RENDIX_APP_URL?.trim() || "https://dev.rendixapp.com"
-).replace(/\/$/, "");
-
+//
+// Mismo bug que tenía welcome-email.ts: un único RENDIX_APP_URL global no
+// alcanza porque este backend atiende a los 4 entornos cliente desde un
+// único deployment — por eso cada mail resuelve su URL según el entorno
+// de la Empresa (ver lib/notifications/app-url.ts), no con una constante
+// de módulo.
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -20,9 +25,11 @@ type ClientReplyEmailInput = {
   requesterName: string;
   ticketNumber: number;
   messageBody: string;
+  environment: RendixClientEnvironment;
 };
 
 export function buildClientReplyEmail(input: ClientReplyEmailInput) {
+  const APP_URL = getAppUrl(input.environment);
   const firstName = input.requesterName.trim().split(/\s+/)[0] || null;
   const greeting = firstName ? `Hola ${firstName},` : "Hola,";
   const subject = `Nueva respuesta en tu consulta #${input.ticketNumber} — Rendix`;
@@ -65,6 +72,7 @@ type ClientConfirmationEmailInput = {
   ticketNumber: number;
   categoryLabel: string;
   messageBody: string;
+  environment: RendixClientEnvironment;
 };
 
 export function buildClientTicketConfirmationEmail(
@@ -116,6 +124,7 @@ type StaffNotificationInput = {
   categoryLabel?: string;
   requesterName: string;
   messageBody: string;
+  environment: RendixClientEnvironment;
 };
 
 export function buildStaffNotificationEmail(input: StaffNotificationInput) {

@@ -150,6 +150,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       companyName: company.name,
       requesterName: ticket.requester_name,
       messageBody,
+      environment,
     });
 
     await sendEmail({

@@ -93,10 +93,20 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   let emailStatus: string = "skipped";
   if (!isInternalNote) {
+    // El ticket solo trae company_id — necesitamos el entorno de esa
+    // Empresa para que el link del mail no caiga siempre al default de
+    // desarrollo (mismo bug que welcome-email.ts, ver support-email.ts).
+    const { data: company } = await supabaseAdmin
+      .from("companies")
+      .select("environment")
+      .eq("id", ticket.company_id)
+      .single();
+
     const clientEmail = buildClientReplyEmail({
       requesterName: ticket.requester_name,
       ticketNumber: ticket.ticket_number,
       messageBody,
+      environment: company?.environment ?? "production",
     });
 
     const emailResult = await sendEmail({
