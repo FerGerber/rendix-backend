@@ -28,6 +28,9 @@ type WelcomeEmailInput = {
   companyName: string;
   provider: WelcomeEmailProvider;
   environment: RendixClientEnvironment;
+  // Solo para "local" en la carga masiva: link para que la persona cree su
+  // propia contraseña (en vez de recibir una temporal por otro canal).
+  setupUrl?: string;
 };
 
 const PROVIDER_LABEL: Record<"google" | "microsoft", string> = {
@@ -71,6 +74,36 @@ export function buildWelcomeEmail(input: WelcomeEmailInput) {
   const firstName = input.fullName.trim().split(/\s+/)[0] || null;
   const greeting = firstName ? `¡Hola ${firstName}!` : "¡Hola!";
   const companyNameSafe = escapeHtml(input.companyName);
+
+  if (input.provider === "local" && input.setupUrl) {
+    const setupUrl = input.setupUrl;
+    const subject = `¡Bienvenido a Rendix! Creá tu contraseña para ingresar a ${input.companyName}`;
+
+    const text = [
+      greeting,
+      "",
+      `Ya tenés una cuenta en Rendix para gestionar tus rendiciones de gastos y adelantos en ${input.companyName}, todo en un solo lugar y sin planillas sueltas.`,
+      "",
+      `Para ingresar por primera vez, creá tu contraseña con este enlace: ${setupUrl}`,
+      "",
+      `Si el enlace no funciona o ya venció, ingresá en ${APP_URL}, tocá "Olvidé mi contraseña" y pedí uno nuevo con esta dirección: ${input.email}`,
+      "",
+      "¡Te damos la bienvenida!",
+      "El equipo de Rendix",
+    ].join("\n");
+
+    const bodyHtml = `
+      <p style="margin-top:0;">${greeting}</p>
+      <p>Ya tenés una cuenta en Rendix para gestionar tus rendiciones de gastos y adelantos en <strong>${companyNameSafe}</strong>, todo en un solo lugar y sin planillas sueltas.</p>
+      <p>Para ingresar por primera vez, creá tu contraseña con el botón de abajo. Vas a entrar con esta dirección: <strong>${escapeHtml(input.email)}</strong></p>
+      <p style="margin-bottom:0; font-size:13px; color:#475569;">Si el botón no funciona o el enlace ya venció, ingresá en Rendix, tocá "Olvidé mi contraseña" y pedí uno nuevo.</p>
+    `;
+
+    const html = renderEmailShell(bodyHtml, escapeHtml(setupUrl), "Crear mi contraseña") +
+      `<p style="text-align:center; color:#94a3b8; font-size:12px;">¡Te damos la bienvenida!</p>`;
+
+    return { subject, text, html };
+  }
 
   if (input.provider === "local") {
     const subject = `¡Bienvenido a Rendix! Tu cuenta en ${input.companyName} ya está lista`;

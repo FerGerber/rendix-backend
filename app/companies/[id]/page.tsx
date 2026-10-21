@@ -49,6 +49,18 @@ type CompanySnapshot = {
   users_active: number;
 };
 
+// Para buscar sin que importen mayúsculas ni tildes ("garcia" encuentra
+// "García").
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100];
+
 const ROLE_LABELS: Record<ProfileRole, string> = {
   employee: "Colaborador",
   hr: "RRHH",
@@ -225,6 +237,58 @@ export default function CompanyDetailPage() {
   // conteo EN VIVO de arriba (# usuarios / # activos) sale directo de
   // `users`, ya cargado — esto es solo el respaldo mes a mes.
   const [snapshots, setSnapshots] = useState<CompanySnapshot[]>([]);
+
+  // Filtros y paginación de la lista de usuarios. Se aplican en el
+  // navegador sobre la lista ya cargada.
+  const [userSearch, setUserSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [providerFilter, setProviderFilter] = useState("");
+  const [costCenterFilter, setCostCenterFilter] = useState("");
+  const [pageSize, setPageSize] = useState(25);
+  const [userPage, setUserPage] = useState(1);
+
+  const normalizedSearch = normalizeSearch(userSearch);
+  const filteredUsers = users.filter((user) => {
+    if (
+      normalizedSearch &&
+      !normalizeSearch(`${user.full_name || ""} ${user.email}`).includes(
+        normalizedSearch
+      )
+    ) {
+      return false;
+    }
+    if (roleFilter && user.role !== roleFilter) return false;
+    if (statusFilter === "active" && !user.is_active) return false;
+    if (statusFilter === "inactive" && user.is_active) return false;
+    if (providerFilter && user.auth_provider !== providerFilter) return false;
+    if (costCenterFilter === "none") {
+      if (user.default_cost_center_id) return false;
+    } else if (
+      costCenterFilter &&
+      user.default_cost_center_id !== costCenterFilter
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const hasUserFilters = Boolean(
+    normalizedSearch ||
+      roleFilter ||
+      statusFilter ||
+      providerFilter ||
+      costCenterFilter
+  );
+  const totalUserPages = Math.max(
+    1,
+    Math.ceil(filteredUsers.length / pageSize)
+  );
+  const currentUserPage = Math.min(userPage, totalUserPages);
+  const userPageStart = (currentUserPage - 1) * pageSize;
+  const pagedUsers = filteredUsers.slice(
+    userPageStart,
+    userPageStart + pageSize
+  );
 
   const loadCompany = async () => {
     setCompanyLoading(true);
@@ -740,13 +804,21 @@ export default function CompanyDetailPage() {
 
         <div className="mt-8 flex items-center justify-between gap-4">
           <h2 className="text-lg font-bold">Usuarios</h2>
-          <button
-            type="button"
-            onClick={() => setShowCreate((value) => !value)}
-            className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
-          >
-            {showCreate ? "Cancelar" : "+ Invitar usuario"}
-          </button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <Link
+              href={`/companies/${companyId}/users-upload`}
+              className="rounded-xl border-2 border-blue-600 px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
+            >
+              Carga masiva (Excel)
+            </Link>
+            <button
+              type="button"
+              onClick={() => setShowCreate((value) => !value)}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              {showCreate ? "Cancelar" : "+ Invitar usuario"}
+            </button>
+          </div>
         </div>
 
         {createMessage && (
@@ -923,6 +995,129 @@ export default function CompanyDetailPage() {
           </form>
         )}
 
+        {users.length > 0 && (
+          <div className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <label className="block text-xs lg:col-span-2">
+                <span className="font-medium text-slate-600">Buscar</span>
+                <input
+                  type="search"
+                  value={userSearch}
+                  placeholder="Nombre o email"
+                  onChange={(event) => {
+                    setUserSearch(event.target.value);
+                    setUserPage(1);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600">Rol</span>
+                <select
+                  value={roleFilter}
+                  onChange={(event) => {
+                    setRoleFilter(event.target.value);
+                    setUserPage(1);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Todos</option>
+                  {(Object.keys(ROLE_LABELS) as ProfileRole[]).map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600">Estado</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => {
+                    setStatusFilter(event.target.value);
+                    setUserPage(1);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Todos</option>
+                  <option value="active">Activos</option>
+                  <option value="inactive">Inactivos</option>
+                </select>
+              </label>
+
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600">Acceso</span>
+                <select
+                  value={providerFilter}
+                  onChange={(event) => {
+                    setProviderFilter(event.target.value);
+                    setUserPage(1);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Todos</option>
+                  {(Object.keys(AUTH_PROVIDER_LABELS) as AuthProviderValue[]).map(
+                    (provider) => (
+                      <option key={provider} value={provider}>
+                        {AUTH_PROVIDER_LABELS[provider]}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+
+              <label className="block text-xs">
+                <span className="font-medium text-slate-600">
+                  Centro de costos
+                </span>
+                <select
+                  value={costCenterFilter}
+                  onChange={(event) => {
+                    setCostCenterFilter(event.target.value);
+                    setUserPage(1);
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Todos</option>
+                  <option value="none">Sin centro asignado</option>
+                  {costCenters.map((costCenter) => (
+                    <option key={costCenter.id} value={costCenter.id}>
+                      {costCenter.numero_centro_costo} -{" "}
+                      {costCenter.nombre_centro_costo}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+              <span>
+                {hasUserFilters
+                  ? `${filteredUsers.length} de ${users.length} usuarios con los filtros aplicados`
+                  : `${users.length} usuarios`}
+              </span>
+              {hasUserFilters && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserSearch("");
+                    setRoleFilter("");
+                    setStatusFilter("");
+                    setProviderFilter("");
+                    setCostCenterFilter("");
+                    setUserPage(1);
+                  }}
+                  className="font-medium text-blue-600 hover:underline"
+                >
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 rounded-2xl bg-white shadow-sm">
           {usersLoading ? (
             <p className="p-6 text-sm text-slate-500">Cargando usuarios...</p>
@@ -932,9 +1127,13 @@ export default function CompanyDetailPage() {
             <p className="p-6 text-sm text-slate-500">
               Todavía no hay usuarios en esta empresa.
             </p>
+          ) : filteredUsers.length === 0 ? (
+            <p className="p-6 text-sm text-slate-500">
+              Ningún usuario coincide con los filtros aplicados.
+            </p>
           ) : (
             <div className="divide-y divide-slate-100">
-              {users.map((user) => (
+              {pagedUsers.map((user) => (
                 <div key={user.id} className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1122,6 +1321,54 @@ export default function CompanyDetailPage() {
             </div>
           )}
         </div>
+
+        {users.length > 0 && filteredUsers.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+            <span>
+              Mostrando {userPageStart + 1} a{" "}
+              {Math.min(userPageStart + pageSize, filteredUsers.length)} de{" "}
+              {filteredUsers.length}
+            </span>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1">
+                Por página
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value));
+                    setUserPage(1);
+                  }}
+                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={currentUserPage <= 1}
+                onClick={() => setUserPage(currentUserPage - 1)}
+                className="rounded-lg border border-slate-300 px-3 py-1 font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <span>
+                Página {currentUserPage} de {totalUserPages}
+              </span>
+              <button
+                type="button"
+                disabled={currentUserPage >= totalUserPages}
+                onClick={() => setUserPage(currentUserPage + 1)}
+                className="rounded-lg border border-slate-300 px-3 py-1 font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
 
         {staff && (
           <p className="mt-6 text-xs text-slate-400">

@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { Readable } from "stream";
 
 export type ParsedRow = Record<string, string>;
+export type ParsedRowWithNumber = { rowNumber: number; data: ParsedRow };
 
 // Extrae el valor de una celda de ExcelJS como texto plano, manejando los
 // formatos especiales que puede devolver (texto enriquecido, fórmulas,
@@ -27,11 +28,25 @@ function cellToString(value: ExcelJS.CellValue): string {
   return String(value).trim();
 }
 
+// Normaliza un encabezado: minúsculas, sin tildes y espacios -> "_", para
+// tolerar variaciones como "Numero_Cuenta", " numero_cuenta " o "Número
+// de cuenta".
+function normalizeHeader(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+}
+
 // Lee un archivo CSV o Excel (.xlsx) subido desde el navegador y lo
-// convierte en filas de texto, con los encabezados de columna
-// normalizados (minúsculas, espacios reemplazados por "_") para tolerar
-// variaciones como "Numero_Cuenta" o " numero_cuenta ".
-export async function parseSpreadsheetFile(file: File): Promise<ParsedRow[]> {
+// convierte en filas de texto, conservando el número de fila real del
+// archivo (el encabezado es la fila 1) para poder reportar errores con la
+// fila que la persona ve en su Excel, aunque haya filas vacías en el medio.
+export async function parseSpreadsheetFileWithRows(
+  file: File
+): Promise<ParsedRowWithNumber[]> {
   const buffer = Buffer.from(await file.arrayBuffer());
   const name = file.name.toLowerCase();
 
@@ -55,10 +70,10 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedRow[]> {
 
   const headers: string[] = [];
   worksheet.getRow(1).eachCell({ includeEmpty: true }, (cell, colNumber) => {
-    headers[colNumber] = cellToString(cell.value).toLowerCase().replace(/\s+/g, "_");
+    headers[colNumber] = normalizeHeader(cellToString(cell.value));
   });
 
-  const rows: ParsedRow[] = [];
+  const rows: ParsedRowWithNumber[] = [];
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // encabezado
 
@@ -72,10 +87,15 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedRow[]> {
       normalizedRow[key] = strValue;
     });
 
-    if (hasValue) rows.push(normalizedRow);
+    if (hasValue) rows.push({ rowNumber, data: normalizedRow });
   });
 
   return rows;
+}
+
+export async function parseSpreadsheetFile(file: File): Promise<ParsedRow[]> {
+  const rows = await parseSpreadsheetFileWithRows(file);
+  return rows.map((row) => row.data);
 }
 
 const TRUE_VALUES = new Set(["true", "1", "si", "sí", "x", "yes"]);
