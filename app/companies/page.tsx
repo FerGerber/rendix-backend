@@ -9,6 +9,12 @@ import {
   RENDIX_CLIENT_ENVIRONMENT_LABELS,
   type RendixClientEnvironment,
 } from "@/lib/environments";
+import {
+  DEFAULT_COUNTRY_CODE,
+  SUPPORTED_COUNTRIES,
+  getCountryName,
+  getSuggestedCurrency,
+} from "@/lib/countries";
 
 // "development" y "production" ya tienen credenciales de servicio
 // cargadas (ver RENDIX_{ENTORNO}_SUPABASE_URL / ..._SERVICE_ROLE_KEY en
@@ -27,6 +33,7 @@ type ClientCompany = {
   name: string;
   tax_id: string | null;
   base_currency: string;
+  country_code: string;
   is_active: boolean;
   created_at: string;
 };
@@ -36,6 +43,7 @@ type UnregisteredCompany = {
   name: string;
   tax_id: string | null;
   base_currency: string;
+  country_code?: string;
   is_active: boolean;
 };
 
@@ -56,6 +64,7 @@ export default function CompaniesPage() {
   const [name, setName] = useState("");
   const [taxId, setTaxId] = useState("");
   const [baseCurrency, setBaseCurrency] = useState("ARS");
+  const [countryCode, setCountryCode] = useState<string>(DEFAULT_COUNTRY_CODE);
   const [environment, setEnvironment] =
     useState<RendixClientEnvironment>("development");
 
@@ -177,6 +186,7 @@ export default function CompaniesPage() {
           name,
           tax_id: taxId || null,
           base_currency: baseCurrency,
+          country_code: countryCode,
           environment,
         }),
       });
@@ -187,6 +197,7 @@ export default function CompaniesPage() {
       setName("");
       setTaxId("");
       setBaseCurrency("ARS");
+      setCountryCode(DEFAULT_COUNTRY_CODE);
       setShowForm(false);
       await loadCompanies();
     } catch (error) {
@@ -332,6 +343,9 @@ export default function CompaniesPage() {
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
                           {company.tax_id ? `${company.tax_id} · ` : ""}
+                          {company.country_code
+                            ? `${getCountryName(company.country_code)} · `
+                            : ""}
                           {company.base_currency}
                         </p>
                       </div>
@@ -382,6 +396,26 @@ export default function CompaniesPage() {
                   onChange={(event) => setTaxId(event.target.value)}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 />
+              </label>
+
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">País</span>
+                <select
+                  value={countryCode}
+                  onChange={(event) => {
+                    setCountryCode(event.target.value);
+                    // Sugiere la moneda base del país elegido; se puede
+                    // cambiar a mano en el campo siguiente.
+                    setBaseCurrency(getSuggestedCurrency(event.target.value));
+                  }}
+                  className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                >
+                  {SUPPORTED_COUNTRIES.map((country) => (
+                    <option key={country.code} value={country.code}>
+                      {country.name}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <label className="block text-sm">
@@ -465,6 +499,7 @@ export default function CompaniesPage() {
                     <p className="mt-0.5 text-xs text-slate-500">
                       {RENDIX_CLIENT_ENVIRONMENT_LABELS[company.environment]}
                       {company.tax_id ? ` · ${company.tax_id}` : ""} ·{" "}
+                      {getCountryName(company.country_code)} ·{" "}
                       {company.base_currency}
                     </p>
                   </div>

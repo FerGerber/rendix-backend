@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireActiveStaff, requireStaffManager } from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { DEFAULT_COUNTRY_CODE, isSupportedCountryCode } from "@/lib/countries";
 import {
   getEnvironmentServiceClient,
   EnvironmentNotConfiguredError,
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   let query = supabaseAdmin
     .from("client_companies")
     .select(
-      "id, environment, remote_company_id, name, tax_id, base_currency, is_active, created_at"
+      "id, environment, remote_company_id, name, tax_id, base_currency, country_code, is_active, created_at"
     )
     .order("created_at", { ascending: false });
 
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
     name?: unknown;
     tax_id?: unknown;
     base_currency?: unknown;
+    country_code?: unknown;
     environment?: unknown;
   };
 
@@ -84,6 +86,19 @@ export async function POST(request: Request) {
     typeof body.base_currency === "string" && body.base_currency.trim()
       ? body.base_currency.trim().toUpperCase()
       : "ARS";
+  // El país define cómo se leen los comprobantes de la empresa; solo se
+  // aceptan los de la lista habilitada (por defecto, Argentina).
+  const countryCode =
+    body.country_code === undefined || body.country_code === null
+      ? DEFAULT_COUNTRY_CODE
+      : body.country_code;
+
+  if (!isSupportedCountryCode(countryCode)) {
+    return NextResponse.json(
+      { success: false, error: "El país indicado no es válido." },
+      { status: 400 }
+    );
+  }
 
   if (!name) {
     return NextResponse.json(
@@ -116,7 +131,12 @@ export async function POST(request: Request) {
 
   const { data: remoteCompany, error: remoteError } = await environmentClient
     .from("companies")
-    .insert({ name, tax_id: taxId, base_currency: baseCurrency })
+    .insert({
+      name,
+      tax_id: taxId,
+      base_currency: baseCurrency,
+      country_code: countryCode,
+    })
     .select("id")
     .single();
 
@@ -140,10 +160,11 @@ export async function POST(request: Request) {
       name,
       tax_id: taxId,
       base_currency: baseCurrency,
+      country_code: countryCode,
       created_by: auth.staff.id,
     })
     .select(
-      "id, environment, remote_company_id, name, tax_id, base_currency, is_active, created_at"
+      "id, environment, remote_company_id, name, tax_id, base_currency, country_code, is_active, created_at"
     )
     .single();
 

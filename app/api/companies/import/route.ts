@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
   const { data: remoteCompany, error: remoteError } = await environmentClient
     .from("companies")
-    .select("id, name, tax_id, base_currency, is_active")
+    .select("id, name, tax_id, base_currency, country_code, is_active")
     .eq("id", remoteCompanyId)
     .single();
 
@@ -89,11 +89,12 @@ export async function POST(request: Request) {
       name: remoteCompany.name,
       tax_id: remoteCompany.tax_id,
       base_currency: remoteCompany.base_currency,
+      country_code: remoteCompany.country_code,
       is_active: remoteCompany.is_active,
       created_by: auth.staff.id,
     })
     .select(
-      "id, environment, remote_company_id, name, tax_id, base_currency, is_active, created_at"
+      "id, environment, remote_company_id, name, tax_id, base_currency, country_code, is_active, created_at"
     )
     .single();
 

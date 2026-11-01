@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   const [remoteResult, registeredResult] = await Promise.all([
     environmentClient
       .from("companies")
-      .select("id, name, tax_id, base_currency, is_active")
+      .select("id, name, tax_id, base_currency, country_code, is_active")
       .order("name", { ascending: true }),
     supabaseAdmin
       .from("client_companies")

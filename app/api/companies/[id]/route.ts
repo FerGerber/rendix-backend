@@ -5,6 +5,7 @@ import {
   companyAccessDeniedResponse,
 } from "@/lib/api/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isSupportedCountryCode } from "@/lib/countries";
 import {
   getEnvironmentServiceClient,
   EnvironmentNotConfiguredError,
@@ -22,7 +23,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   const { data, error } = await supabaseAdmin
     .from("client_companies")
     .select(
-      "id, environment, remote_company_id, name, tax_id, base_currency, is_active, created_at"
+      "id, environment, remote_company_id, name, tax_id, base_currency, country_code, is_active, created_at"
     )
     .eq("id", id)
     .single();
@@ -68,6 +69,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     name?: unknown;
     tax_id?: unknown;
     base_currency?: unknown;
+    country_code?: unknown;
     is_active?: unknown;
   };
 
@@ -93,6 +95,17 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   }
   if (typeof body.base_currency === "string" && body.base_currency.trim()) {
     updates.base_currency = body.base_currency.trim().toUpperCase();
+  }
+  if (body.country_code !== undefined) {
+    // Solo el personal de Rendix puede cambiar el país (esta ruta), y solo
+    // a uno de la lista habilitada.
+    if (!isSupportedCountryCode(body.country_code)) {
+      return NextResponse.json(
+        { success: false, error: "El país indicado no es válido." },
+        { status: 400 }
+      );
+    }
+    updates.country_code = body.country_code;
   }
   if (typeof body.is_active === "boolean") {
     updates.is_active = body.is_active;
@@ -144,7 +157,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     .update(updates)
     .eq("id", id)
     .select(
-      "id, environment, remote_company_id, name, tax_id, base_currency, is_active, created_at"
+      "id, environment, remote_company_id, name, tax_id, base_currency, country_code, is_active, created_at"
     )
     .single();
 
