@@ -166,6 +166,25 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {staff?.can_manage_staff && (
+          <div className="mt-4 rounded-2xl bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-bold">Intentos de ingreso fallidos</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Qué mail no pudo ingresar a Rendix y por qué.
+                </p>
+              </div>
+              <Link
+                href="/login-attempts"
+                className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                Ver intentos
+              </Link>
+            </div>
+          </div>
+        )}
+
         <div className="mt-8">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="text-lg font-bold">Facturación — referencia</h2>
